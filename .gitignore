@@ -6,3 +6,13 @@
 .env
 .env\
 .env.example
+
+#UV
+uv.lock
+venv
+
+# MCP local config files (may contain secrets)
+mcp_config.local.json
+
+# Solace MCP Server nested .env files
+Solace_MCP_Server/**/.env
