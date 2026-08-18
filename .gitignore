@@ -16,3 +16,6 @@ mcp_config.local.json
 
 # Solace MCP Server nested .env files
 Solace_MCP_Server/**/.env
+
+#Pycache
+__pycache__/
