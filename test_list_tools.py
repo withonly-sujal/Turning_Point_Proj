@@ -39,8 +39,7 @@ if not token or token == "your_token_here":
     print("   -> Get a token at: https://console.solace.cloud/ > API Tokens")
     sys.exit(1)
 
-print(f"[OK] Token loaded  : {'*' * (len(token) - 6)}{token[-6:]}")
-print(f"[OK] Base URL      : {base_url}")
+print("[OK] Token loaded successfully.")
 print()
 print("[...] Starting MCP server and sending tools/list request...")
 
