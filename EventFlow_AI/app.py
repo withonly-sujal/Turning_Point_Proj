@@ -79,10 +79,9 @@ async def main():
 
     try:
         async with mcp.managed_session() as session:
-            # Pre-fetch tool list for /tools command
-            all_tools = await mcp.fetch_all_tools(session)
+            all_tools = mcp.GENERALIZED_TOOLS
 
-            print(f"[OK] Connected — {len(all_tools)} tools available.\n")
+            print(f"[OK] Connected — Smart Router Active.\n")
 
             while True:
                 try:
