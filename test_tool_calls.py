@@ -51,7 +51,7 @@ async def main():
 
                 # Call the specific tool
                 result = await session.call_tool(
-                    "getEvents",
+                    "getApplicationDomains",
                     {}
                 )
 

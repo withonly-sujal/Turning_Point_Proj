@@ -19,3 +19,7 @@ Solace_MCP_Server/**/.env
 
 #Pycache
 __pycache__/
+
+#Solace Data
+Solace_Event_Portal_Import.json
+Solace-aviation-ops.json
