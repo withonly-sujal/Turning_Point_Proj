@@ -1,0 +1,48 @@
+# EventFlow AI
+
+EventFlow AI is an intelligent CLI assistant for the Solace Event Portal. It allows you to explore and query your Event-Driven Architecture (EDA) using natural language.
+
+Built on the Model Context Protocol (MCP) and powered by local LLMs (Ollama), EventFlow AI ensures your data stays private while providing an intuitive way to navigate complex Solace API relationships.
+
+
+## Prerequisites
+
+1. **Python 3.10+**
+2. **[uv](https://github.com/astral-sh/uv)**: An extremely fast Python package and project manager.
+3. **[Ollama](https://ollama.com/)**: Must be installed and running locally.
+4. **Qwen3 Model**: Pull the required model via Ollama:
+   ```bash
+   ollama run qwen3:8b
+   ```
+
+## Setup
+
+1. **Clone the repository** and navigate to the project root.
+2. **Create a `.env` file** in the root directory based on the following template:
+   ```env
+   # Solace Event Portal Credentials
+   SOLACE_API_TOKEN=your_solace_token_here
+   SOLACE_API_BASE_URL=https://api.solace.cloud
+   
+   # Ollama Configuration
+   OLLAMA_BASE_URL=http://localhost:11434/v1
+   OLLAMA_MODEL=qwen3:8b
+   ```
+
+## Usage
+
+Start the interactive CLI application using `uv`:
+
+```bash
+uv run python -m EventFlow_AI.app
+```
+
+The application will prompt you to select a persona. Once connected, you can type your questions directly into the prompt. 
+
+### Available Commands
+Inside the chat, you can use the following commands:
+- `/tools` - View the active tools (Smart Router schemas) provided to the LLM.
+- `/persona` - Switch between Admin and End User mode.
+- `/clear` - Clear the terminal and conversation history.
+- `/help` - View help information.
+- `/exit` - Exit the application.
