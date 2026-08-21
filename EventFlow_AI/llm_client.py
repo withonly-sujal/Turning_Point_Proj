@@ -5,12 +5,6 @@ Local LLM interface and Persona Engine.
 
 Connects to your locally-running Ollama instance using the OpenAI-compatible
 API. No data ever leaves your machine.
-
-Personas
---------
-ADMIN      -- Full Read + Write access to all 35 Solace tools.
-END_USER   -- Read-only access. Mutating calls are blocked with an escalation
-              warning before they are even sent to the LLM.
 """
 
 from openai import AsyncOpenAI
@@ -23,40 +17,28 @@ client = AsyncOpenAI(
     api_key="ollama",               # Ollama ignores this value, but SDK requires it
 )
 
-# ── Read-only tool names (safe for End User) ───────────────────────────────
-READ_ONLY_PREFIXES = ("get", "list")
-
 # ── System Prompts ─────────────────────────────────────────────────────────
 _BASE_PROMPT = """You are EventFlow AI, an expert assistant for the Solace Event Portal.
-You help users understand and manage their Event-Driven Architecture.
-When answering, always be concise and structured. Use bullet points or tables when listing data.
-If a tool returns an empty list, say so clearly and suggest next steps.
+You help users understand their Event-Driven Architecture.
+
+You have access to "Smart Tools" that automatically navigate the complex Solace API for you.
+Always follow this logic:
+1. If you need to find an entity by name (like an Application or Domain), use `search_solace_entity` to get its ID.
+2. If you need to find what an entity contains, produces, or consumes, use `get_entity_relationships` with its ID.
+
+When answering, always be concise and structured. Use bullet points.
 Never fabricate data — only report what the tools return."""
 
 SYSTEM_PROMPTS = {
     "admin": _BASE_PROMPT + """
 
 You are operating in ADMIN mode.
-You have full read AND write access to all Solace Event Portal Designer tools.
-You may create, update, and delete application domains, applications, events, and schemas.""",
+*(Note: Mutation tools are currently disabled while we test the Smart Router.)*""",
 
     "end_user": _BASE_PROMPT + """
 
-You are operating in END USER (Read-Only) mode.
-You may ONLY use tools that start with 'get' or 'list'.
-If the user asks you to create, update, or delete anything, respond with:
-  "This action requires Administrator privileges. Please contact your admin."
-Do not attempt to call any mutating tool under any circumstances.""",
+You are operating in END USER (Read-Only) mode.""",
 }
-
-
-# ── Persona safety guard ───────────────────────────────────────────────────
-def is_tool_allowed(tool_name: str, persona: str) -> bool:
-    """Return True if the persona is allowed to call this tool."""
-    if persona == "admin":
-        return True
-    # End user: only read-only prefixes
-    return tool_name.lower().startswith(READ_ONLY_PREFIXES)
 
 
 # ── LLM call helpers ───────────────────────────────────────────────────────
@@ -67,12 +49,6 @@ async def chat(
 ) -> object:
     """
     Send a conversation to the local Qwen model and return the raw response.
-
-    Parameters
-    ----------
-    messages   : Full conversation history in OpenAI chat format.
-    tools      : Optional list of OpenAI-format tool schemas.
-    tool_choice: "auto" lets the model decide; "none" disables tool calling.
     """
     kwargs = {
         "model": config.OLLAMA_MODEL,
@@ -87,10 +63,7 @@ async def chat(
 
 
 def mcp_to_openai_tool(tool: dict) -> dict:
-    """
-    Convert an MCP tool definition into the OpenAI function-calling format
-    expected by the chat completions API.
-    """
+    """Convert a generalized tool definition to OpenAI format."""
     return {
         "type": "function",
         "function": {
