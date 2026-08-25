@@ -44,21 +44,21 @@ async def managed_session():
 GENERALIZED_TOOLS = [
     {
         "name": "search_solace_entity",
-        "description": "Finds the ID and details of a specific Domain, Application, or Event by its exact name.",
+        "description": "Lists all entities of a given type, or finds a specific entity if 'name' is provided.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "entity_type": {
                     "type": "string",
                     "enum": ["domain", "application", "event"],
-                    "description": "The type of entity you are searching for."
+                    "description": "The type of entity you want to list or search for."
                 },
                 "name": {
                     "type": "string",
-                    "description": "The exact name of the entity."
+                    "description": "Optional. The exact name of the entity to search for. If omitted, lists all entities of the specified type."
                 }
             },
-            "required": ["entity_type", "name"]
+            "required": ["entity_type"]
         }
     },
     {
@@ -78,6 +78,52 @@ GENERALIZED_TOOLS = [
                 }
             },
             "required": ["entity_id", "relationship_type"]
+        }
+    },
+    {
+        "name": "create_solace_entity",
+        "description": "Creates a new Solace Domain, Application, or Event, along with its initial version (0.1.0).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["domain", "application", "event"],
+                    "description": "The type of entity you want to create."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "The exact name of the new entity."
+                },
+                "domain_name": {
+                    "type": "string",
+                    "description": "The exact name of the domain where this entity should reside. Required for applications and events."
+                }
+            },
+            "required": ["entity_type", "name"]
+        }
+    },
+    {
+        "name": "create_solace_entity_version",
+        "description": "Creates a new version for an existing Application or Event.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["application", "event"],
+                    "description": "The type of entity you are versioning."
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "The ID of the parent application or event."
+                },
+                "version": {
+                    "type": "string",
+                    "description": "The new version string (e.g. '1.0.0')."
+                }
+            },
+            "required": ["entity_type", "entity_id", "version"]
         }
     }
 ]
@@ -100,22 +146,25 @@ async def _call_mcp(session: ClientSession, tool_name: str, args: dict) -> list 
         return []
 
 
-async def _search_entity(session: ClientSession, entity_type: str, name: str) -> dict:
+async def _search_entity(session: ClientSession, entity_type: str, name: str = None) -> dict:
     """Executes the search_solace_entity logic."""
+    args = {}
+    if name:
+        args["name"] = name
     
     if entity_type == "domain":
         # Solace getApplicationDomains allows filtering by name
-        data = await _call_mcp(session, "getApplicationDomains", {"name": name})
+        data = await _call_mcp(session, "getApplicationDomains", args)
         return {"result": data}
         
     elif entity_type == "application":
         # Solace getApplications allows filtering by name
-        data = await _call_mcp(session, "getApplications", {"name": name})
+        data = await _call_mcp(session, "getApplications", args)
         return {"result": data}
         
     elif entity_type == "event":
         # Solace getEvents allows filtering by name
-        data = await _call_mcp(session, "getEvents", {"name": name})
+        data = await _call_mcp(session, "getEvents", args)
         return {"result": data}
         
     return {"error": f"Unsupported entity_type: {entity_type}"}
@@ -177,6 +226,84 @@ async def _get_relationships(session: ClientSession, entity_id: str, relationshi
     return {"error": f"Unsupported relationship_type: {relationship_type}"}
 
 
+async def _create_entity(session: ClientSession, entity_type: str, name: str, domain_name: str = None) -> dict:
+    """Executes the create_solace_entity logic."""
+    # 1. Check if it exists
+    existing = await _search_entity(session, entity_type, name)
+    if existing.get("result") and len(existing["result"]) > 0:
+        return {"error": f"{entity_type.capitalize()} '{name}' already exists. Use create_solace_entity_version to add a new version."}
+
+    # 2. Create Domain (no parent required)
+    if entity_type == "domain":
+        data = await _call_mcp(session, "createApplicationDomain", {"name": name})
+        return {"result": data}
+
+    # 3. For app and event, we need a domain
+    if not domain_name:
+        return {"error": "domain_name is required for applications and events."}
+
+    # Resolve domain ID
+    domain_search = await _search_entity(session, "domain", domain_name)
+    if not domain_search.get("result") or len(domain_search["result"]) == 0:
+        return {"error": f"Domain '{domain_name}' not found."}
+    
+    domain_id = domain_search["result"][0]["id"]
+
+    # 4. Create entity and its initial version
+    if entity_type == "application":
+        data = await _call_mcp(session, "createApplication", {
+            "name": name,
+            "applicationDomainId": domain_id,
+            "applicationType": "standard"
+        })
+        entity = data[0] if isinstance(data, list) and len(data) > 0 else data
+        app_id = entity.get("id")
+        if not app_id:
+            return {"error": f"Created app but couldn't get ID. Response: {data}"}
+
+        ver_data = await _call_mcp(session, "createApplicationVersion", {
+            "applicationId": app_id,
+            "version": "0.1.0"
+        })
+        return {"result": {"entity": entity, "initial_version": ver_data}}
+
+    elif entity_type == "event":
+        data = await _call_mcp(session, "createEvent", {
+            "name": name,
+            "applicationDomainId": domain_id
+        })
+        entity = data[0] if isinstance(data, list) and len(data) > 0 else data
+        evt_id = entity.get("id")
+        if not evt_id:
+            return {"error": f"Created event but couldn't get ID. Response: {data}"}
+
+        ver_data = await _call_mcp(session, "createEventVersion", {
+            "eventId": evt_id,
+            "version": "0.1.0"
+        })
+        return {"result": {"entity": entity, "initial_version": ver_data}}
+
+    return {"error": f"Unsupported entity_type: {entity_type}"}
+
+
+async def _create_version(session: ClientSession, entity_type: str, entity_id: str, version: str) -> dict:
+    """Executes the create_solace_entity_version logic."""
+    if entity_type == "application":
+        ver_data = await _call_mcp(session, "createApplicationVersion", {
+            "applicationId": entity_id,
+            "version": version
+        })
+        return {"result": ver_data}
+    elif entity_type == "event":
+        ver_data = await _call_mcp(session, "createEventVersion", {
+            "eventId": entity_id,
+            "version": version
+        })
+        return {"result": ver_data}
+    
+    return {"error": f"Unsupported entity_type: {entity_type}"}
+
+
 # ── The Interceptor ────────────────────────────────────────────────────────
 async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict) -> str:
     """Routes the LLM's generic tool call to the Python mapping engine."""
@@ -186,6 +313,10 @@ async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict)
             result = await _search_entity(session, args.get("entity_type"), args.get("name"))
         elif tool_name == "get_entity_relationships":
             result = await _get_relationships(session, args.get("entity_id"), args.get("relationship_type"))
+        elif tool_name == "create_solace_entity":
+            result = await _create_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"))
+        elif tool_name == "create_solace_entity_version":
+            result = await _create_version(session, args.get("entity_type"), args.get("entity_id"), args.get("version"))
         else:
             return json.dumps({"error": f"Unknown smart tool: {tool_name}"})
             
