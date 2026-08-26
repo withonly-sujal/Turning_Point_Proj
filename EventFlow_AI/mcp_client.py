@@ -254,7 +254,8 @@ async def _create_entity(session: ClientSession, entity_type: str, name: str, do
         data = await _call_mcp(session, "createApplication", {
             "name": name,
             "applicationDomainId": domain_id,
-            "applicationType": "standard"
+            "applicationType": "standard",
+            "brokerType": "solace"
         })
         entity = data[0] if isinstance(data, list) and len(data) > 0 else data
         app_id = entity.get("id")
