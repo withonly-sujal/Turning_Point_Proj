@@ -61,6 +61,10 @@ GENERALIZED_TOOLS = [
                 "name": {
                     "type": "string",
                     "description": "Optional. The exact name of the entity to search for. If omitted, lists all entities of the specified type."
+                },
+                "domain_name": {
+                    "type": "string",
+                    "description": "Optional. The exact name of the domain to filter the search results by."
                 }
             },
             "required": ["entity_type"]
@@ -110,7 +114,7 @@ GENERALIZED_TOOLS = [
     },
     {
         "name": "create_solace_entity_version",
-        "description": "Creates a new version for an existing Application or Event.",
+        "description": "Creates a new version for an existing Application, Event, Event API, or Event API Product.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -121,7 +125,7 @@ GENERALIZED_TOOLS = [
                 },
                 "entity_id": {
                     "type": "string",
-                    "description": "The ID of the parent application or event."
+                    "description": "The ID of the parent entity."
                 },
                 "version": {
                     "type": "string",
@@ -129,6 +133,44 @@ GENERALIZED_TOOLS = [
                 }
             },
             "required": ["entity_type", "entity_id", "version"]
+        }
+    },
+    {
+        "name": "delete_solace_entity",
+        "description": "Deletes a specific Solace Domain, Application, Event, Event API, or Event API Product.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["domain", "application", "event", "event_api", "event_api_product"],
+                    "description": "The type of entity you are deleting."
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "The ID of the entity to delete."
+                }
+            },
+            "required": ["entity_type", "entity_id"]
+        }
+    },
+    {
+        "name": "delete_solace_entity_version",
+        "description": "Deletes a specific version of a Solace Application, Event, Event API, or Event API Product.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["application", "event", "event_api", "event_api_product"],
+                    "description": "The type of entity version you are deleting."
+                },
+                "version_id": {
+                    "type": "string",
+                    "description": "The unique ID of the version to delete."
+                }
+            },
+            "required": ["entity_type", "version_id"]
         }
     }
 ]
@@ -155,11 +197,18 @@ async def _call_mcp(session: ClientSession, tool_name: str, args: dict) -> list 
         return []
 
 
-async def _search_entity(session: ClientSession, entity_type: str, name: str = None) -> dict:
+async def _search_entity(session: ClientSession, entity_type: str, name: str = None, domain_name: str = None) -> dict:
     """Executes the search_solace_entity logic."""
     args = {}
     if name:
         args["name"] = name
+        
+    if domain_name and entity_type != "domain":
+        # Resolve the domain name to an applicationDomainId
+        domain_res = await _call_mcp(session, "getApplicationDomains", {"name": domain_name})
+        if not domain_res:
+            return {"error": f"Domain '{domain_name}' not found."}
+        args["applicationDomainId"] = domain_res[0]["id"]
     
     if entity_type == "domain":
         # Solace getApplicationDomains allows filtering by name
@@ -368,19 +417,71 @@ async def _create_version(session: ClientSession, entity_type: str, entity_id: s
     return {"error": f"Unsupported entity_type: {entity_type}"}
 
 
+async def _delete_entity(session: ClientSession, entity_type: str, entity_id: str) -> dict:
+    """Executes the delete_solace_entity logic."""
+    if entity_type == "domain":
+        res = await _call_mcp(session, "deleteApplicationDomain", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted application domain with ID {entity_id}"}
+    elif entity_type == "application":
+        res = await _call_mcp(session, "deleteApplication", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted application with ID {entity_id}"}
+    elif entity_type == "event":
+        res = await _call_mcp(session, "deleteEvent", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted event with ID {entity_id}"}
+    elif entity_type == "event_api":
+        res = await _call_mcp(session, "deleteEventApi", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted event api with ID {entity_id}"}
+    elif entity_type == "event_api_product":
+        res = await _call_mcp(session, "deleteEventApiProduct", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted event api product with ID {entity_id}"}
+    
+    return {"error": f"Unsupported entity_type for deletion: {entity_type}"}
+
+
+async def _delete_version(session: ClientSession, entity_type: str, version_id: str) -> dict:
+    """Executes the delete_solace_entity_version logic."""
+    if entity_type == "application":
+        res = await _call_mcp(session, "deleteApplicationVersion", {"versionId": version_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted application version {version_id}"}
+    elif entity_type == "event":
+        res = await _call_mcp(session, "deleteEventVersion", {"id": version_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted event version {version_id}"}
+    elif entity_type == "event_api":
+        res = await _call_mcp(session, "deleteEventApiVersion", {"versionId": version_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted event api version {version_id}"}
+    elif entity_type == "event_api_product":
+        res = await _call_mcp(session, "deleteEventApiProductVersion", {"versionId": version_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted event api product version {version_id}"}
+    
+    return {"error": f"Unsupported entity_type for version deletion: {entity_type}"}
+
+
 # ── The Interceptor ────────────────────────────────────────────────────────
 async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict) -> str:
     """Routes the LLM's generic tool call to the Python mapping engine."""
     
     try:
         if tool_name == "search_solace_entity":
-            result = await _search_entity(session, args.get("entity_type"), args.get("name"))
+            result = await _search_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"))
         elif tool_name == "get_entity_relationships":
             result = await _get_relationships(session, args.get("entity_id"), args.get("relationship_type"))
         elif tool_name == "create_solace_entity":
             result = await _create_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"))
         elif tool_name == "create_solace_entity_version":
             result = await _create_version(session, args.get("entity_type"), args.get("entity_id"), args.get("version"))
+        elif tool_name == "delete_solace_entity":
+            result = await _delete_entity(session, args.get("entity_type"), args.get("entity_id"))
+        elif tool_name == "delete_solace_entity_version":
+            result = await _delete_version(session, args.get("entity_type"), args.get("version_id"))
         else:
             return json.dumps({"error": f"Unknown smart tool: {tool_name}"})
             
