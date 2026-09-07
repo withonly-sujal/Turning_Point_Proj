@@ -24,9 +24,14 @@ def _get_server_params() -> StdioServerParameters:
         "SOLACE_API_TOKEN": config.SOLACE_API_TOKEN,
         "SOLACE_API_BASE_URL": config.SOLACE_API_BASE_URL,
     }
+    
+    # Use the local modified package
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    mcp_path = os.path.join(base_dir, "Solace_MCP_Server", "solace-event-portal-designer-mcp")
+    
     return StdioServerParameters(
         command="uvx",
-        args=["-q", "--from", "solace-event-portal-designer-mcp", "solace-ep-designer-mcp"],
+        args=["-q", "--from", mcp_path, "solace-ep-designer-mcp"],
         env=env,
     )
 
@@ -50,7 +55,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["domain", "application", "event"],
+                    "enum": ["domain", "application", "event", "event_api", "event_api_product"],
                     "description": "The type of entity you want to list or search for."
                 },
                 "name": {
@@ -88,7 +93,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["domain", "application", "event"],
+                    "enum": ["domain", "application", "event", "event_api", "event_api_product"],
                     "description": "The type of entity you want to create."
                 },
                 "name": {
@@ -111,7 +116,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["application", "event"],
+                    "enum": ["application", "event", "event_api", "event_api_product"],
                     "description": "The type of entity you are versioning."
                 },
                 "entity_id": {
@@ -139,8 +144,12 @@ async def _call_mcp(session: ClientSession, tool_name: str, args: dict) -> list 
         if not text.strip():
             return []
         
-        parsed = json.loads(text)
-        return parsed.get("data", parsed)
+        try:
+            parsed = json.loads(text)
+            return parsed.get("data", parsed)
+        except json.JSONDecodeError:
+            # If the server returned an error string instead of JSON
+            return {"error": text}
     except Exception as e:
         print(f"[DEBUG] MCP Call failed: {tool_name} with {args} - {e}")
         return []
@@ -165,6 +174,14 @@ async def _search_entity(session: ClientSession, entity_type: str, name: str = N
     elif entity_type == "event":
         # Solace getEvents allows filtering by name
         data = await _call_mcp(session, "getEvents", args)
+        return {"result": data}
+        
+    elif entity_type == "event_api":
+        data = await _call_mcp(session, "getEventApis", args)
+        return {"result": data}
+        
+    elif entity_type == "event_api_product":
+        data = await _call_mcp(session, "getEventApiProducts", args)
         return {"result": data}
         
     return {"error": f"Unsupported entity_type: {entity_type}"}
@@ -284,6 +301,40 @@ async def _create_entity(session: ClientSession, entity_type: str, name: str, do
         })
         return {"result": {"entity": entity, "initial_version": ver_data}}
 
+    elif entity_type == "event_api":
+        data = await _call_mcp(session, "createEventApi", {
+            "name": name,
+            "applicationDomainId": domain_id,
+            "brokerType": "solace"
+        })
+        entity = data[0] if isinstance(data, list) and len(data) > 0 else data
+        evt_api_id = entity.get("id")
+        if not evt_api_id:
+            return {"error": f"Created event api but couldn't get ID. Response: {data}"}
+
+        ver_data = await _call_mcp(session, "createEventApiVersion", {
+            "eventApiId": evt_api_id,
+            "version": "0.1.0"
+        })
+        return {"result": {"entity": entity, "initial_version": ver_data}}
+
+    elif entity_type == "event_api_product":
+        data = await _call_mcp(session, "createEventApiProduct", {
+            "name": name,
+            "applicationDomainId": domain_id,
+            "brokerType": "solace"
+        })
+        entity = data[0] if isinstance(data, list) and len(data) > 0 else data
+        evt_api_prod_id = entity.get("id")
+        if not evt_api_prod_id:
+            return {"error": f"Created event api product but couldn't get ID. Response: {data}"}
+
+        ver_data = await _call_mcp(session, "createEventApiProductVersion", {
+            "eventApiProductId": evt_api_prod_id,
+            "version": "0.1.0"
+        })
+        return {"result": {"entity": entity, "initial_version": ver_data}}
+
     return {"error": f"Unsupported entity_type: {entity_type}"}
 
 
@@ -298,6 +349,18 @@ async def _create_version(session: ClientSession, entity_type: str, entity_id: s
     elif entity_type == "event":
         ver_data = await _call_mcp(session, "createEventVersion", {
             "eventId": entity_id,
+            "version": version
+        })
+        return {"result": ver_data}
+    elif entity_type == "event_api":
+        ver_data = await _call_mcp(session, "createEventApiVersion", {
+            "eventApiId": entity_id,
+            "version": version
+        })
+        return {"result": ver_data}
+    elif entity_type == "event_api_product":
+        ver_data = await _call_mcp(session, "createEventApiProductVersion", {
+            "eventApiProductId": entity_id,
             "version": version
         })
         return {"result": ver_data}

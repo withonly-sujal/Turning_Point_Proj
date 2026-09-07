@@ -113,6 +113,10 @@ def main():
             RouteMap(pattern=r"^/api/v2/architecture/eventVersions(/\{id\})?$", mcp_type=MCPType.TOOL),
             RouteMap(pattern=r"^/api/v2/architecture/schemaVersions(/\{id\})?$", mcp_type=MCPType.TOOL),
             RouteMap(pattern=r"^/api/v2/architecture/schemas(/\{id\})?$", mcp_type=MCPType.TOOL),
+            RouteMap(pattern=r"^/api/v2/architecture/eventApis(/\{id\})?$", mcp_type=MCPType.TOOL),
+            RouteMap(pattern=r"^/api/v2/architecture/eventApiVersions(/\{versionId\})?$", mcp_type=MCPType.TOOL),
+            RouteMap(pattern=r"^/api/v2/architecture/eventApiProducts(/\{id\})?$", mcp_type=MCPType.TOOL),
+            RouteMap(pattern=r"^/api/v2/architecture/eventApiProductVersions(/\{versionId\})?$", mcp_type=MCPType.TOOL),
             RouteMap(mcp_type=MCPType.EXCLUDE)
         ],
         mcp_component_fn=customize_components,

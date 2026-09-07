@@ -71,7 +71,7 @@ env = {**os.environ, "SOLACE_API_TOKEN": token, "SOLACE_API_BASE_URL": base_url}
 
 try:
     proc = subprocess.Popen(
-        ["uvx", "--from", "solace-event-portal-designer-mcp", "solace-ep-designer-mcp"],
+        ["uvx", "--from", ".", "solace-ep-designer-mcp"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
