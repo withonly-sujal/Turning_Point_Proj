@@ -55,7 +55,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["domain", "application", "event", "event_api", "event_api_product"],
+                    "enum": ["domain", "application", "event", "event_api", "event_api_product", "schema", "enum"],
                     "description": "The type of entity you want to list or search for."
                 },
                 "name": {
@@ -97,7 +97,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["domain", "application", "event", "event_api", "event_api_product"],
+                    "enum": ["domain", "application", "event", "event_api", "event_api_product", "schema", "enum"],
                     "description": "The type of entity you want to create."
                 },
                 "name": {
@@ -107,6 +107,11 @@ GENERALIZED_TOOLS = [
                 "domain_name": {
                     "type": "string",
                     "description": "The exact name of the domain where this entity should reside. Required for applications and events."
+                },
+                "enum_values": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Required when creating an enum. The list of string values for the enumeration."
                 }
             },
             "required": ["entity_type", "name"]
@@ -120,7 +125,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["application", "event", "event_api", "event_api_product"],
+                    "enum": ["application", "event", "event_api", "event_api_product", "schema", "enum"],
                     "description": "The type of entity you are versioning."
                 },
                 "entity_id": {
@@ -130,6 +135,11 @@ GENERALIZED_TOOLS = [
                 "version": {
                     "type": "string",
                     "description": "The new version string (e.g. '1.0.0')."
+                },
+                "enum_values": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Required when versioning an enum. The list of string values for the enumeration."
                 }
             },
             "required": ["entity_type", "entity_id", "version"]
@@ -143,7 +153,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["domain", "application", "event", "event_api", "event_api_product"],
+                    "enum": ["domain", "application", "event", "event_api", "event_api_product", "schema", "enum"],
                     "description": "The type of entity you are deleting."
                 },
                 "entity_id": {
@@ -162,7 +172,7 @@ GENERALIZED_TOOLS = [
             "properties": {
                 "entity_type": {
                     "type": "string",
-                    "enum": ["application", "event", "event_api", "event_api_product"],
+                    "enum": ["application", "event", "event_api", "event_api_product", "schema", "enum"],
                     "description": "The type of entity version you are deleting."
                 },
                 "version_id": {
@@ -233,6 +243,17 @@ async def _search_entity(session: ClientSession, entity_type: str, name: str = N
         data = await _call_mcp(session, "getEventApiProducts", args)
         return {"result": data}
         
+    elif entity_type == "schema":
+        data = await _call_mcp(session, "getSchemas", args)
+        return {"result": data}
+        
+    elif entity_type == "enum":
+        # Solace getEnums uses 'names' instead of 'name'
+        if "name" in args:
+            args["names"] = [args.pop("name")]
+        data = await _call_mcp(session, "getEnums", args)
+        return {"result": data}
+        
     return {"error": f"Unsupported entity_type: {entity_type}"}
 
 
@@ -292,7 +313,7 @@ async def _get_relationships(session: ClientSession, entity_id: str, relationshi
     return {"error": f"Unsupported relationship_type: {relationship_type}"}
 
 
-async def _create_entity(session: ClientSession, entity_type: str, name: str, domain_name: str = None) -> dict:
+async def _create_entity(session: ClientSession, entity_type: str, name: str, domain_name: str = None, enum_values: list = None) -> dict:
     """Executes the create_solace_entity logic."""
     # 1. Check if it exists
     existing = await _search_entity(session, entity_type, name)
@@ -384,10 +405,47 @@ async def _create_entity(session: ClientSession, entity_type: str, name: str, do
         })
         return {"result": {"entity": entity, "initial_version": ver_data}}
 
+    elif entity_type == "schema":
+        data = await _call_mcp(session, "createSchema", {
+            "name": name,
+            "applicationDomainId": domain_id,
+            "schemaType": "jsonSchema"  # Defaulting to jsonSchema, can be enhanced later
+        })
+        entity = data[0] if isinstance(data, list) and len(data) > 0 else data
+        schema_id = entity.get("id")
+        if not schema_id:
+            return {"error": f"Created schema but couldn't get ID. Response: {data}"}
+
+        ver_data = await _call_mcp(session, "createSchemaVersion", {
+            "schemaId": schema_id,
+            "version": "0.1.0"
+        })
+        return {"result": {"entity": entity, "initial_version": ver_data}}
+
+    elif entity_type == "enum":
+        if not enum_values:
+            return {"error": "enum_values is required when creating an enum"}
+            
+        data = await _call_mcp(session, "createEnum", {
+            "name": name,
+            "applicationDomainId": domain_id
+        })
+        entity = data[0] if isinstance(data, list) and len(data) > 0 else data
+        enum_id = entity.get("id")
+        if not enum_id:
+            return {"error": f"Created enum but couldn't get ID. Response: {data}"}
+
+        ver_data = await _call_mcp(session, "createEnumVersion", {
+            "enumId": enum_id,
+            "version": "0.1.0",
+            "values": [{"value": v} for v in enum_values]
+        })
+        return {"result": {"entity": entity, "initial_version": ver_data}}
+
     return {"error": f"Unsupported entity_type: {entity_type}"}
 
 
-async def _create_version(session: ClientSession, entity_type: str, entity_id: str, version: str) -> dict:
+async def _create_version(session: ClientSession, entity_type: str, entity_id: str, version: str, enum_values: list = None) -> dict:
     """Executes the create_solace_entity_version logic."""
     if entity_type == "application":
         ver_data = await _call_mcp(session, "createApplicationVersion", {
@@ -411,6 +469,22 @@ async def _create_version(session: ClientSession, entity_type: str, entity_id: s
         ver_data = await _call_mcp(session, "createEventApiProductVersion", {
             "eventApiProductId": entity_id,
             "version": version
+        })
+        return {"result": ver_data}
+    elif entity_type == "schema":
+        ver_data = await _call_mcp(session, "createSchemaVersion", {
+            "schemaId": entity_id,
+            "version": version
+        })
+        return {"result": ver_data}
+    elif entity_type == "enum":
+        if not enum_values:
+            return {"error": "enum_values is required when versioning an enum"}
+            
+        ver_data = await _call_mcp(session, "createEnumVersion", {
+            "enumId": entity_id,
+            "version": version,
+            "values": [{"value": v} for v in enum_values]
         })
         return {"result": ver_data}
     
@@ -439,6 +513,14 @@ async def _delete_entity(session: ClientSession, entity_type: str, entity_id: st
         res = await _call_mcp(session, "deleteEventApiProduct", {"id": entity_id})
         if isinstance(res, dict) and "error" in res: return res
         return {"result": f"Successfully deleted event api product with ID {entity_id}"}
+    elif entity_type == "schema":
+        res = await _call_mcp(session, "deleteSchema", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted schema with ID {entity_id}"}
+    elif entity_type == "enum":
+        res = await _call_mcp(session, "deleteEnum", {"id": entity_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted enum with ID {entity_id}"}
     
     return {"error": f"Unsupported entity_type for deletion: {entity_type}"}
 
@@ -461,6 +543,14 @@ async def _delete_version(session: ClientSession, entity_type: str, version_id: 
         res = await _call_mcp(session, "deleteEventApiProductVersion", {"versionId": version_id})
         if isinstance(res, dict) and "error" in res: return res
         return {"result": f"Successfully deleted event api product version {version_id}"}
+    elif entity_type == "schema":
+        res = await _call_mcp(session, "deleteSchemaVersion", {"id": version_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted schema version {version_id}"}
+    elif entity_type == "enum":
+        res = await _call_mcp(session, "deleteEnumVersion", {"id": version_id})
+        if isinstance(res, dict) and "error" in res: return res
+        return {"result": f"Successfully deleted enum version {version_id}"}
     
     return {"error": f"Unsupported entity_type for version deletion: {entity_type}"}
 
@@ -475,9 +565,9 @@ async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict)
         elif tool_name == "get_entity_relationships":
             result = await _get_relationships(session, args.get("entity_id"), args.get("relationship_type"))
         elif tool_name == "create_solace_entity":
-            result = await _create_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"))
+            result = await _create_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"), args.get("enum_values"))
         elif tool_name == "create_solace_entity_version":
-            result = await _create_version(session, args.get("entity_type"), args.get("entity_id"), args.get("version"))
+            result = await _create_version(session, args.get("entity_type"), args.get("entity_id"), args.get("version"), args.get("enum_values"))
         elif tool_name == "delete_solace_entity":
             result = await _delete_entity(session, args.get("entity_type"), args.get("entity_id"))
         elif tool_name == "delete_solace_entity_version":
