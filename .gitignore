@@ -23,10 +23,3 @@ __pycache__/
 #Solace Data
 Solace_EP_Data/
 
-#Documentation
-Documentation/
-
-#BackStage
-BackStage/**
-
-Prompt_Test/
