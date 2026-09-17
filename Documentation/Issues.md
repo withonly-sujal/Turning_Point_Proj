@@ -36,3 +36,17 @@ RouteMap(pattern=r"^/api/v2/architecture/eventApis(/\{id\})?$", mcp_type=MCPType
 RouteMap(pattern=r"^/api/v2/architecture/eventApiVersions(/\{versionId\})?$", mcp_type=MCPType.TOOL),
 ```
 Going forward, if any new Solace entities (like new AsyncAPI objects) are unsupported by the AI, the first troubleshooting step should be to check the `RouteMap` in `solace-event-portal-designer-mcp/src/.../server.py` to ensure the specific API endpoint is being exposed to the parser.
+
+---
+
+## 3. Inability to Search Entities by ID (Resolved)
+
+### What it is
+The AI failed to locate an application domain when provided with its ID (e.g., `yjjffaefbje`). Instead, it incorrectly attempted to search for a domain with that ID as its *name*, returning zero results.
+
+### Why it is
+The `search_solace_entity` tool schema exposed to the LLM only provided `name` and `domain_name` fields. It completely lacked an `entity_id` field. Because of this, when the LLM was asked to search by ID, it placed the ID into the `name` field as a fallback, causing the underlying Solace query (`getApplicationDomains(name="...")`) to fail.
+
+### What we can do about it
+**Status:** Resolved.
+We updated the `search_solace_entity` tool schema in `mcp_client.py` to accept an optional `entity_id` parameter. We then updated the `_search_entity` function to detect `entity_id` and map it to the underlying `ids` array parameter expected by Solace API retrieval tools.
