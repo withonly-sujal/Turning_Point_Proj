@@ -13,6 +13,7 @@ from mcp import ClientSession
 
 from . import config
 from . import mcp_client as mcp
+from . import broker_client as broker
 from . import llm_client as llm
 
 
@@ -22,7 +23,8 @@ async def run(user_query: str, session: ClientSession, persona: str) -> str:
     """
 
     # ── Inject the Generalized Tools ──────────────────────────────────────────
-    openai_tools = [llm.mcp_to_openai_tool(t) for t in mcp.GENERALIZED_TOOLS]
+    all_tools = mcp.GENERALIZED_TOOLS + broker.BROKER_TOOLS
+    openai_tools = [llm.mcp_to_openai_tool(t) for t in all_tools]
 
     messages = [
         {"role": "system", "content": llm.SYSTEM_PROMPTS[persona]},
@@ -64,7 +66,10 @@ async def run(user_query: str, session: ClientSession, persona: str) -> str:
                 args = {}
 
             # Execute via Smart Router
-            tool_result = await mcp.execute_smart_tool(session, tool_name, args)
+            if any(t["name"] == tool_name for t in broker.BROKER_TOOLS):
+                tool_result = await broker.execute_broker_tool(tool_name, args)
+            else:
+                tool_result = await mcp.execute_smart_tool(session, tool_name, args)
 
             messages.append({
                 "role": "tool",

@@ -86,11 +86,86 @@ GENERALIZED_TOOLS = [
                 },
                 "relationship_type": {
                     "type": "string",
-                    "enum": ["applications", "produced_events", "consumed_events"],
+                    "enum": ["applications", "produced_events", "consumed_events", "event_apis", "consuming_applications"],
                     "description": "The type of relationship you want to explore."
                 }
             },
             "required": ["entity_id", "relationship_type"]
+        }
+    },
+    {
+        "name": "duplicate_solace_entity",
+        "description": "Duplicates an existing entity, copying its configuration and relationships to a new entity.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["application", "event", "event_api", "event_api_product"],
+                    "description": "The type of entity you want to duplicate."
+                },
+                "source_entity_id": {
+                    "type": "string",
+                    "description": "The ID of the existing entity to duplicate."
+                },
+                "new_name": {
+                    "type": "string",
+                    "description": "The exact name for the new duplicate entity."
+                }
+            },
+            "required": ["entity_type", "source_entity_id", "new_name"]
+        }
+    },
+    {
+        "name": "update_entity_relationship",
+        "description": "Updates the relationships of a specific version of an entity (e.g., adding an event to an event API).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["application", "event_api", "event_api_product"],
+                    "description": "The type of entity version you are updating."
+                },
+                "version_id": {
+                    "type": "string",
+                    "description": "The ID of the specific entity VERSION to update."
+                },
+                "action": {
+                    "type": "string",
+                    "enum": ["add", "remove"],
+                    "description": "Whether to add or remove the relationship."
+                },
+                "target_type": {
+                    "type": "string",
+                    "enum": ["event", "event_api"],
+                    "description": "The type of the target entity version being linked."
+                },
+                "target_version_id": {
+                    "type": "string",
+                    "description": "The ID of the target entity VERSION to link/unlink."
+                }
+            },
+            "required": ["entity_type", "version_id", "action", "target_type", "target_version_id"]
+        }
+    },
+    {
+        "name": "get_entity_impact",
+        "description": "Finds out what other entities rely on or reference a given entity version (reverse dependency lookup).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": ["event", "schema", "event_api"],
+                    "description": "The type of entity you are analyzing."
+                },
+                "version_id": {
+                    "type": "string",
+                    "description": "The ID of the specific entity VERSION."
+                }
+            },
+            "required": ["entity_type", "version_id"]
         }
     },
     {
@@ -315,6 +390,26 @@ async def _get_relationships(session: ClientSession, entity_id: str, relationshi
                 ev["name"] = parent_event[0].get("name", "Unknown")
 
         return {"result": resolved_events}
+
+    elif relationship_type == "event_apis":
+        prod_vers = await _call_mcp(session, "getEventApiProductVersions", {"eventApiProductIds": [entity_id]})
+        if not prod_vers or isinstance(prod_vers, dict): return {"result": []}
+        api_ver_ids = prod_vers[0].get("declaredEventApiVersionIds", [])
+        if not api_ver_ids: return {"result": []}
+        
+        apis = []
+        for api_vid in api_ver_ids:
+            api_ver = await _call_mcp(session, "getEventApiVersions", {"ids": [api_vid]})
+            if api_ver and not isinstance(api_ver, dict):
+                apis.append({"version_id": api_vid, "event_api_id": api_ver[0].get("eventApiId"), "version": api_ver[0].get("version")})
+        return {"result": apis}
+
+    elif relationship_type == "consuming_applications":
+        # Forward to impact analysis. Assumes entity_id is a version_id or we fetch latest version.
+        # We will assume it's the parent ID and fetch latest version.
+        vers = await _call_mcp(session, "getEventApiVersions", {"eventApiIds": [entity_id]})
+        if not vers or isinstance(vers, dict): return {"result": []}
+        return await _get_impact(session, "event_api", vers[0]["id"])
 
     return {"error": f"Unsupported relationship_type: {relationship_type}"}
 
@@ -561,6 +656,84 @@ async def _delete_version(session: ClientSession, entity_type: str, version_id: 
     return {"error": f"Unsupported entity_type for version deletion: {entity_type}"}
 
 
+async def _duplicate_entity(session: ClientSession, entity_type: str, source_entity_id: str, new_name: str) -> dict:
+    get_tool = f"get{entity_type.replace('_', ' ').title().replace(' ', '')}s"
+    if entity_type == "event_api": get_tool = "getEventApis"
+    
+    source_entity_res = await _call_mcp(session, get_tool, {"ids": [source_entity_id]})
+    if not source_entity_res or isinstance(source_entity_res, dict):
+        return {"error": f"Source entity {source_entity_id} not found."}
+    source_entity = source_entity_res[0]
+
+    create_payload = {"name": new_name}
+    for key in ["applicationDomainId", "brokerType", "applicationType", "schemaType"]:
+        if key in source_entity: create_payload[key] = source_entity[key]
+    
+    create_tool = f"create{entity_type.replace('_', ' ').title().replace(' ', '')}"
+    new_entity_res = await _call_mcp(session, create_tool, create_payload)
+    if isinstance(new_entity_res, dict) and "error" in new_entity_res: return new_entity_res
+    new_entity = new_entity_res[0] if isinstance(new_entity_res, list) else new_entity_res
+    new_entity_id = new_entity.get("id")
+
+    if entity_type == "domain": return {"result": "Duplicated domain", "entity": new_entity}
+
+    get_ver_tool = f"get{entity_type.replace('_', ' ').title().replace(' ', '')}Versions"
+    id_param = f"{entity_type.replace('_', ' ').title().replace(' ', '')[:1].lower() + entity_type.replace('_', ' ').title().replace(' ', '')[1:]}Ids"
+    if entity_type == "event_api": id_param = "eventApiIds"
+    
+    source_vers = await _call_mcp(session, get_ver_tool, {id_param: [source_entity_id]})
+    if not source_vers or isinstance(source_vers, dict):
+        return {"result": "Duplicated entity, no versions found.", "entity": new_entity}
+    
+    source_ver = source_vers[0]
+    create_ver_payload = {"version": "0.1.0", id_param[:-1]: new_entity_id}
+    
+    for key in ["declaredEventApiVersionIds", "declaredProducedEventVersionIds", "declaredConsumedEventVersionIds", "schemaVersionId", "schemaId"]:
+        if key in source_ver: create_ver_payload[key] = source_ver[key]
+
+    create_ver_tool = f"create{entity_type.replace('_', ' ').title().replace(' ', '')}Version"
+    new_ver_res = await _call_mcp(session, create_ver_tool, create_ver_payload)
+
+    return {"result": f"Duplicated {entity_type} successfully.", "new_entity": new_entity, "new_version": new_ver_res}
+
+
+async def _update_relationship(session: ClientSession, entity_type: str, version_id: str, action: str, target_type: str, target_version_id: str) -> dict:
+    get_ver_tool = f"get{entity_type.replace('_', ' ').title().replace(' ', '')}Versions"
+    source_vers = await _call_mcp(session, get_ver_tool, {"ids": [version_id]})
+    if not source_vers or isinstance(source_vers, dict): return {"error": f"Version {version_id} not found."}
+    
+    source_ver = source_vers[0]
+    array_key = None
+    if entity_type == "event_api_product" and target_type == "event_api": array_key = "declaredEventApiVersionIds"
+    elif entity_type == "event_api" and target_type == "event": array_key = "declaredProducedEventVersionIds" 
+    elif entity_type == "application" and target_type == "event": array_key = "declaredProducedEventVersionIds"
+    
+    if not array_key: return {"error": f"Mapping between {entity_type} and {target_type} unsupported."}
+
+    current_array = source_ver.get(array_key, [])
+    if action == "add" and target_version_id not in current_array: current_array.append(target_version_id)
+    elif action == "remove" and target_version_id in current_array: current_array.remove(target_version_id)
+
+    patch_tool = f"update{entity_type.replace('_', ' ').title().replace(' ', '')}Version"
+    id_param = "versionId" if entity_type != "event" else "id"
+    patch_payload = {id_param: version_id, array_key: current_array}
+    
+    return {"result": await _call_mcp(session, patch_tool, patch_payload)}
+
+
+async def _get_impact(session: ClientSession, entity_type: str, version_id: str) -> dict:
+    tool_name = f"get{entity_type.replace('_', ' ').title().replace(' ', '')}VersionsReferencedBy"
+    if entity_type == "event_api": tool_name = "getEventApiVersionsReferencedBy"
+    elif entity_type == "event": tool_name = "getEventVersionsReferencedBy"
+    
+    id_param = "id"
+    if entity_type == "event_api": id_param = "eventApiVersionId"
+    elif entity_type == "schema": id_param = "versionId"
+    
+    res = await _call_mcp(session, tool_name, {id_param: version_id})
+    return {"result": res}
+
+
 # ── The Interceptor ────────────────────────────────────────────────────────
 async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict) -> str:
     """Routes the LLM's generic tool call to the Python mapping engine."""
@@ -578,6 +751,12 @@ async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict)
             result = await _delete_entity(session, args.get("entity_type"), args.get("entity_id"))
         elif tool_name == "delete_solace_entity_version":
             result = await _delete_version(session, args.get("entity_type"), args.get("version_id"))
+        elif tool_name == "duplicate_solace_entity":
+            result = await _duplicate_entity(session, args.get("entity_type"), args.get("source_entity_id"), args.get("new_name"))
+        elif tool_name == "update_entity_relationship":
+            result = await _update_relationship(session, args.get("entity_type"), args.get("version_id"), args.get("action"), args.get("target_type"), args.get("target_version_id"))
+        elif tool_name == "get_entity_impact":
+            result = await _get_impact(session, args.get("entity_type"), args.get("version_id"))
         else:
             return json.dumps({"error": f"Unknown smart tool: {tool_name}"})
             

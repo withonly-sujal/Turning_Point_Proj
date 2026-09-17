@@ -119,6 +119,7 @@ def main():
             RouteMap(pattern=r"^/api/v2/architecture/eventApiProductVersions(/\{versionId\})?$", mcp_type=MCPType.TOOL),
             RouteMap(pattern=r"^/api/v2/architecture/enums(/\{id\})?$", mcp_type=MCPType.TOOL),
             RouteMap(pattern=r"^/api/v2/architecture/enumVersions(/\{id\})?$", mcp_type=MCPType.TOOL),
+            RouteMap(pattern=r"^/api/v2/architecture/.*referencedBy.*", mcp_type=MCPType.TOOL),
             RouteMap(mcp_type=MCPType.EXCLUDE)
         ],
         mcp_component_fn=customize_components,
