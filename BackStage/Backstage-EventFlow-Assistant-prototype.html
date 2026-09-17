@@ -28,11 +28,34 @@ button{border:0;border-radius:8px;padding:12px 15px;background:var(--nav);color:
 </main></div>
 <script>
 const chat=document.getElementById('chat'),promptBox=document.getElementById('prompt');
-function add(text,cls){const d=document.createElement('div');d.className='msg '+cls;d.innerHTML=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight}
-function runExample(type){const p={query:'Show every application in the Commerce domain that publishes the OrderCreated event.',create:'Create an event named PaymentAuthorized in the Commerce domain using topic acme/payments/authorized/{region}/{paymentId} and associate it with the PaymentAuthorized schema.',update:'Add the PaymentAuthorized event as a published event on version 1.0.0 of Payment Service.'}[type];promptBox.value=p;sendPrompt(type)}
-function sendPrompt(forced){const text=promptBox.value.trim();if(!text)return;add(text,'user');promptBox.value='';const type=forced||(text.toLowerCase().startsWith('show')?'query':text.toLowerCase().startsWith('create')?'create':'update');setTimeout(()=>{if(type==='query'){add('Intent: <b>search Event Portal relationships</b><br>Risk: <span class="pill">Read only</span>','assistant');add('MCP tool call<br>search_event_relationships({ domain: "Commerce", event: "OrderCreated", direction: "publishes" })','tool');add('<b>2 matching applications</b><br>1. Order Management API — version 1.2.0<br>2. Commerce Integration Service — version 2.0.0<br><br>Both publish <code>OrderCreated</code>.','assistant')}else if(type==='create'){add('I resolved the Commerce domain and PaymentAuthorized schema. This request changes Event Portal.','assistant');add('<div class="confirm"><b>Proposed change</b><br>Create event: PaymentAuthorized<br>Topic: <code>acme/payments/authorized/{region}/{paymentId}</code><br>Schema: PaymentAuthorizedSchema<br><div class="confirm-actions"><button onclick="confirmCreate()">Confirm create</button><button class="secondary" onclick="add(\'Operation cancelled.\',\'assistant\')">Cancel</button></div></div>','assistant')}else{add('I found Payment Service version 1.0.0 and the PaymentAuthorized event. This request changes an application relationship.','assistant');add('<div class="confirm"><b>Proposed change</b><br>Application: Payment Service 1.0.0<br>Add published event: PaymentAuthorized 1.0.0<br><div class="confirm-actions"><button onclick="confirmUpdate()">Confirm update</button><button class="secondary" onclick="add(\'Operation cancelled.\',\'assistant\')">Cancel</button></div></div>','assistant')}},350)}
-function confirmCreate(){add('MCP tool call<br>create_event({ domain: "Commerce", name: "PaymentAuthorized", topic: "acme/payments/authorized/{region}/{paymentId}", schema: "PaymentAuthorizedSchema" })','tool');setTimeout(()=>add('<b>Created successfully</b><br>PaymentAuthorized — version 1.0.0 (Draft)<br>Topic and schema association validated.','assistant'),300)}
-function confirmUpdate(){add('MCP tool call<br>update_application_version({ application: "Payment Service", version: "1.0.0", addPublishedEvent: "PaymentAuthorized/1.0.0" })','tool');setTimeout(()=>add('<b>Updated successfully</b><br>Payment Service 1.0.0 now publishes PaymentAuthorized 1.0.0.','assistant'),300)}
+function add(text,cls){const d=document.createElement('div');d.className='msg '+cls;d.innerHTML=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;return d;}
+function runExample(type){const p={query:'Show every application in the Commerce domain that publishes the OrderCreated event.',create:'Create an event named PaymentAuthorized in the Commerce domain using topic acme/payments/authorized/{region}/{paymentId} and associate it with the PaymentAuthorized schema.',update:'Add the PaymentAuthorized event as a published event on version 1.0.0 of Payment Service.'}[type];promptBox.value=p;sendPrompt()}
+async function sendPrompt(){
+    const text=promptBox.value.trim();
+    if(!text)return;
+    add(text,'user');
+    promptBox.value='';
+    
+    const loadingMsg = add('Thinking...', 'assistant tool');
+    
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: text, persona: 'admin' })
+        });
+        const data = await response.json();
+        chat.removeChild(loadingMsg);
+        if (data.error) {
+            add('Error: ' + data.error, 'assistant tool');
+        } else {
+            add(data.response, 'assistant');
+        }
+    } catch (err) {
+        chat.removeChild(loadingMsg);
+        add('Connection error: ' + err.message, 'assistant tool');
+    }
+}
 promptBox.addEventListener('keydown',e=>{if(e.key==='Enter')sendPrompt()});
 </script>
 </body></html>

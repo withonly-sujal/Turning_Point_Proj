@@ -65,6 +65,10 @@ GENERALIZED_TOOLS = [
                 "domain_name": {
                     "type": "string",
                     "description": "Optional. The exact name of the domain to filter the search results by."
+                },
+                "entity_id": {
+                    "type": "string",
+                    "description": "Optional. The exact ID of the entity to search for. When provided, looks up the specific entity by ID."
                 }
             },
             "required": ["entity_type"]
@@ -207,9 +211,11 @@ async def _call_mcp(session: ClientSession, tool_name: str, args: dict) -> list 
         return []
 
 
-async def _search_entity(session: ClientSession, entity_type: str, name: str = None, domain_name: str = None) -> dict:
+async def _search_entity(session: ClientSession, entity_type: str, name: str = None, domain_name: str = None, entity_id: str = None) -> dict:
     """Executes the search_solace_entity logic."""
     args = {}
+    if entity_id:
+        args["ids"] = [entity_id]
     if name:
         args["name"] = name
         
@@ -561,7 +567,7 @@ async def execute_smart_tool(session: ClientSession, tool_name: str, args: dict)
     
     try:
         if tool_name == "search_solace_entity":
-            result = await _search_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"))
+            result = await _search_entity(session, args.get("entity_type"), args.get("name"), args.get("domain_name"), args.get("entity_id"))
         elif tool_name == "get_entity_relationships":
             result = await _get_relationships(session, args.get("entity_id"), args.get("relationship_type"))
         elif tool_name == "create_solace_entity":
