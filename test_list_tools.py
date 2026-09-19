@@ -6,7 +6,7 @@ sends it an MCP JSON-RPC `tools/list` request over stdin/stdout,
 and prints all registered tools.
 
 Usage:
-    cd e:\\Turning_Point_Proj
+    cd e:\qwen-eventflow-ai
     python test_list_tools.py
 
 Requirements:

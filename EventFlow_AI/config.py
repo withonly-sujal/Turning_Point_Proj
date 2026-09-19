@@ -18,7 +18,7 @@ def _fix_encoding():
 _fix_encoding()
 
 # ── Load .env from project root ────────────────────────────────────────────
-# Resolves to e:\Turning_Point_Proj\.env regardless of where the script runs.
+# Resolves to e:\qwen-eventflow-ai\.env regardless of where the script runs.
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(_root, ".env"))
 

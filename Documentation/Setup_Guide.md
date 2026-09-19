@@ -21,8 +21,8 @@ Before cloning the repository, ensure your machine has the following tools insta
 Clone the project from GitHub and navigate into the root directory:
 
 ```bash
-git clone https://github.com/withonly-sujal/Turning_Point_Proj.git
-cd Turning_Point_Proj
+git clone https://github.com/withonly-sujal/qwen-eventflow-ai.git
+cd qwen-eventflow-ai
 ```
 
 ---
@@ -44,7 +44,7 @@ ollama pull qwen3:8b
 
 The Smart Router needs to authenticate with the Solace Event Portal Cloud via the official Solace MCP server. 
 
-1. Create a file named `.env` in the root of the project (`Turning_Point_Proj/.env`).
+1. Create a file named `.env` in the root of the project (`qwen-eventflow-ai/.env`).
 2. Add your Solace API token and base URL to the file:
 
 ```env
