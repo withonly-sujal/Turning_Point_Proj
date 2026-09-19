@@ -48,8 +48,15 @@ The Smart Router needs to authenticate with the Solace Event Portal Cloud via th
 2. Add your Solace API token and base URL to the file:
 
 ```env
+# Design-Time (Event Portal) Credentials
 SOLACE_API_TOKEN=your_personal_solace_api_token_here
 SOLACE_API_BASE_URL=https://api.solace.cloud
+
+# Runtime (Event Broker) Credentials
+SOLACE_SEMPV2_BASE_URL=https://your-broker-url:943
+SOLACE_SEMPV2_VPN=default
+SOLACE_SEMPV2_USERNAME=admin
+SOLACE_SEMPV2_PASSWORD=password
 ```
 *(Do NOT use quotes around your API token unless it contains special characters like `#`).*
 
@@ -59,6 +66,9 @@ SOLACE_API_BASE_URL=https://api.solace.cloud
 
 Because we use `uv`, you don't need to manually create virtual environments. `uv` will automatically read the `pyproject.toml`, set up the virtual environment, install the Solace MCP Server (via `uvx`), and execute the app.
 
+You can choose to run the application either as a CLI or via a Web UI.
+
+### Option A: Command-Line Interface (CLI)
 Run the following command from the root of the project to start the CLI interface:
 
 ```bash
@@ -75,4 +85,10 @@ Select Persona:
 Enter 1 or 2: 
 ```
 
-Enjoy building the future of Event-Driven AI! 🚀
+### Option B: Web User Interface (UI)
+If you prefer a graphical interface, you can start the FastAPI web server instead:
+
+```bash
+uv run uvicorn EventFlow_AI.web_server:app --host 0.0.0.0 --port 8000
+```
+Then, open your browser and navigate to `http://localhost:8000` to access the EventFlow AI Web Interface.

@@ -4,19 +4,20 @@ This document tracks known issues, missing capabilities, or limitations within t
 
 ---
 
-## 1. Lack of "Duplicate" or "Clone" Capability
+## 1. Lack of "Duplicate" or "Clone" Capability (Resolved)
 
 ### What it is
-The AI cannot currently duplicate or clone existing complex entities, such as taking an existing "NOTAM" Event API Product and directly duplicating it into a "NOTAMv2" product.
+Previously, the AI could not duplicate or clone existing complex entities, such as taking an existing "NOTAM" Event API Product and directly duplicating it into a "NOTAMv2" product.
 
 ### Why it is
 The Solace Event Portal REST API (EP API v2)—which powers our MCP server under the hood—does not provide a native `/clone` or `/duplicate` endpoint. While the Solace Web UI has a "Clone" button, the UI achieves this by running a complex sequence of GET and POST requests in the background. Currently, the AI's MCP tools only map to single-action operations (Create, Read, Delete, Version) and do not have a built-in macro to handle deep cloning.
 
-### What we can do about it
-To support this in the future, we need to build a custom "Orchestrator Tool" (e.g., `duplicate_event_api_product`) within the MCP server or the AI middleware. This tool would programmatically replicate the Web UI's behavior:
-1. **Fetch:** Perform a GET request to retrieve the target entity and its version payload (including linked components).
-2. **Clean:** Strip out system-generated metadata (`id`, `createdTime`, etc.) and mutate the `name` field to the requested new name.
-3. **Recreate:** Perform POST requests to recreate the parent entity and its new `0.1.0` version, reattaching all the child links to the newly generated ID.
+### What we did about it
+**Status:** Resolved.
+We built a custom "Orchestrator Tool" (`duplicate_solace_entity`) within the Smart Router (`mcp_client.py`). This tool programmatically replicates the Web UI's behavior:
+1. **Fetch:** Performs a GET request to retrieve the target entity and its version payload (including linked components).
+2. **Clean:** Strips out system-generated metadata (`id`, `createdTime`, etc.) and mutates the `name` field to the requested new name.
+3. **Recreate:** Performs POST requests to recreate the parent entity and its new `0.1.0` version, reattaching all the child links to the newly generated ID.
 
 ---
 
